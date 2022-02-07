@@ -4,60 +4,18 @@ import random
 from collections import deque
 from os.path import exists
 
-import gym
+
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from gym.spaces import Box
+
 from gym.wrappers import *
 from nes_py.wrappers import JoypadSpace
 from torch import nn
 from torch.distributions import *
-from torchvision import transforms
 
+from util import *
 import gym_super_mario_bros
-
-
-class SkipFrame(gym.Wrapper):
-    def __init__(self, env, skip):
-        super().__init__(env)
-        self._skip = skip
-
-    def step(self, action):
-        total_reward = 0.0
-        done = False
-        for _ in range(self._skip):
-            obs, reward, done, info = self.env.step(action)
-            total_reward += reward
-            if done:
-                break
-        return obs, total_reward, done, info
-
-
-class GrayScaleObservation(gym.ObservationWrapper):
-    def __init__(self, env):
-        super().__init__(env)
-        self.observation_space = Box(
-            low=0, high=255, shape=self.observation_space.shape[:2], dtype=np.uint8)
-
-    def observation(self, observation):
-        transform = transforms.Grayscale()
-        result = transform(torch.tensor(np.transpose(
-            observation, (2, 0, 1)).copy(), dtype=torch.float))
-        return result
-
-
-class ResizeObservation(gym.ObservationWrapper):
-    def __init__(self, env, shape):
-        super().__init__(env)
-        self.shape = (shape, shape)
-        obs_shape = self.shape + self.observation_space.shape[2:]
-        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
-
-    def observation(self, observation):
-        transformations = transforms.Compose(
-            [transforms.Resize(self.shape), transforms.Normalize(0, 255)])
-        return transformations(observation).squeeze(0)
 
 
 env = gym_super_mario_bros.make('SuperMarioBros-1-1-v0')
@@ -105,7 +63,7 @@ class DDQNAgent:
         self.exploration_rate_min = 0.01
         self.current_step = 0
         self.memory = deque(maxlen=100000)
-        self.batch_size = 32
+        self.batch_size = 64
         self.gamma = 0.95
         self.sync_period = 1e4
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=0.00025, eps=1e-4)
