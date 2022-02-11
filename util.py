@@ -1,6 +1,7 @@
 import numpy as np
 import gym
 from gym.spaces import Box
+from pyrsistent import s
 from torchvision import transforms
 import torch
 
@@ -58,3 +59,15 @@ class ResizeObservation(gym.ObservationWrapper):
             [transforms.Resize(self.shape), transforms.Normalize(0, 255)])
         return transformations(observation).squeeze(0)
 
+class Experience:
+    
+    def __init__(self, state, next_state, action, reward, done, td_error) -> None:
+        self.state = state
+        self.next_state = next_state
+        self.action = action
+        self.reward = reward
+        self.done = done
+        self.td_error = td_error
+        
+    def __lt__(self, other):
+        return self.td_error < other.td_error

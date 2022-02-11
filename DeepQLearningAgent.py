@@ -18,17 +18,9 @@ from util import *
 import gym_super_mario_bros
 
 
-env = gym_super_mario_bros.make('SuperMarioBros-1-1-v0')
-env = JoypadSpace(env, [["right"], ["right", "A"]])
-env = FrameStack(ResizeObservation(GrayScaleObservation(
-    SkipFrame(env, skip=4)), shape=84), num_stack=4)
-env.seed(42)
-env.action_space.seed(42)
 torch.manual_seed(42)
 torch.random.manual_seed(42)
 np.random.seed(42)
-
-
 
 class DDQNSolver(nn.Module):
     def __init__(self, output_dim):
@@ -62,7 +54,8 @@ class DDQNAgent:
         self.exploration_rate_decay = 0.999
         self.exploration_rate_min = 0.01
         self.current_step = 0
-        self.memory = deque(maxlen=100000)
+        self.maxlen_memory = 70000
+        self.memory = deque(maxlen=self.maxlen_memory)
         self.batch_size = 64
         self.gamma = 0.95
         self.sync_period = 1e4
@@ -113,6 +106,7 @@ class DDQNAgent:
     def recall(self):
         state, next_state, action, reward, done = map(torch.stack,
                                                       zip(*random.sample(self.memory, self.batch_size)))
+
         return state, next_state, action.squeeze(), reward.squeeze(), done.squeeze()
 
     def act(self, state):
@@ -136,12 +130,22 @@ class DDQNAgent:
         torch.save(dict(model=self.net.state_dict(), exploration_rate=self.exploration_rate), f=filename)
         print('Checkpoint saved to \'{}\''.format(filename))
 
+def setup_environment():
+    env = gym_super_mario_bros.make('SuperMarioBros-1-1-v0')
+    env = JoypadSpace(env, [["right"], ["right", "A"]])
+    env = FrameStack(ResizeObservation(GrayScaleObservation(
+    SkipFrame(env, skip=4)), shape=84), num_stack=4)
+    env.seed(42)
+    env.action_space.seed(42)
+    
+    return env
 
 def sweat():
+    env = setup_environment()
     episode = 0
     checkpoint_period = 50
-    save_directory = "mario_ql"
-    load_checkpoint = None
+    save_directory = "checkpoints"
+    load_checkpoint = 'checkpoint.pth'
     agent = DDQNAgent(action_dim=env.action_space.n, save_directory=save_directory)
     if load_checkpoint is not None:
         agent.load_checkpoint(save_directory + "/" + load_checkpoint)
