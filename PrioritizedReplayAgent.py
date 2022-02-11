@@ -61,10 +61,10 @@ class DDQNAgent:
         
         self.batch_size = 64 # batch size for experience replay
         self.gamma = 0.95
-        self.sync_period = 1e4 # how many times we update the target network
+        self.sync_period = 10000 # how many times we update the target network
         
-        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=0.00025, eps=1e-4)
-        self.loss = torch.nn.SmoothL1Loss()
+        self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=0.00025, momentum=0.95, eps=1e-5)
+        self.loss = torch.nn.MSELoss()
         self.memory: PriorityQueue = PriorityQueue(self.maxlen_memory)
         
         self.episode_rewards = []
@@ -101,9 +101,6 @@ class DDQNAgent:
         
         state = torch.tensor(state.__array__())
         next_state = torch.tensor(next_state.__array__())
-        action = action
-        reward = reward
-        done = done
         
         if td_error.ndim == 0:
             td_error = np.atleast_1d(td_error)
@@ -150,6 +147,7 @@ class DDQNAgent:
         else:
             action_values = self.net(torch.tensor(state.__array__()).cuda().unsqueeze(0), model="online")
             action = torch.argmax(action_values, dim=1).item()
+            
         self.exploration_rate *= self.exploration_rate_decay
         self.exploration_rate = max(self.exploration_rate_min, self.exploration_rate)
         self.current_step += 1
@@ -179,6 +177,7 @@ def sweat():
     env = setup_environment()
     episode = 0
     checkpoint_period = 50
+    replay_period = 100
     save_directory = "checkpoints"
     load_checkpoint = 'checkpoint.pth'
     agent = DDQNAgent(action_dim=env.action_space.n, save_directory=save_directory)
@@ -192,7 +191,10 @@ def sweat():
             #env.render()
             next_state, reward, done, _ = env.step(action)
             agent.remember(state, next_state, action, reward, done)
-            agent.experience_replay(reward)
+            
+            if agent.current_step % replay_period == 0:
+                agent.experience_replay(reward)
+                
             state = next_state
             if done:
                 episode += 1
@@ -210,11 +212,11 @@ def sweat():
 
 def play():
     env=setup_environment()
-    save_directory = "mario_ql"
+    save_directory = "checkpoints"
     load_checkpoint = "checkpoint.pth"
     agent = DDQNAgent(action_dim=env.action_space.n, save_directory=save_directory)
     if load_checkpoint is not None:
-        agent.load_checkpoint('mario_ql\checkpoint_7400.pth')
+        agent.load_checkpoint(save_directory + "/" + load_checkpoint)
 
     while True:
         state = env.reset()
@@ -222,7 +224,7 @@ def play():
         while not done:
             action = agent.act(state)
 
-            next_state, reward, done, info = env.step(action)
+            next_state, _, done, _ = env.step(action)
             state = next_state
             env.render()
 
