@@ -88,19 +88,25 @@ class DDQNAgent:
             plt.savefig(filename, format="png")
         plt.clf()
 
+    def compute_td_error(self, state, next_state, reward):
+        state_pred = state.cuda().unsqueeze(0)
+        next_state_pred = next_state.cuda().unsqueeze(0)
+        
+        target = self.net(next_state_pred, model="target")
+        online = self.net(state_pred, model="online")
+
+        td_error = reward + self.gamma * torch.max(target) - torch.max(online)
+        
+        return td_error.cpu().detach().numpy()
+
     def remember(self, state, next_state, action, reward, done):
-        # append to memory the state, next_state, action, reward, done with priority of TD error
-        state_pred = torch.tensor(state.__array__()).cuda().unsqueeze(0)
-        next_state_pred = torch.tensor(next_state.__array__()).cuda().unsqueeze(0)
-        
-        predicted = self.net(next_state_pred, model="target")
-        index = torch.argmax(predicted, dim=1).item()
-        
-        td_error = reward + self.gamma * torch.max(predicted) - self.net(state_pred, model="online")[0][index]
-        td_error = td_error.cpu().detach().numpy()
         
         state = torch.tensor(state.__array__())
         next_state = torch.tensor(next_state.__array__())
+        
+        td_error = self.compute_td_error(state, next_state, reward)
+        
+        print(td_error.ndim)
         
         if td_error.ndim == 0:
             td_error = np.atleast_1d(td_error)
@@ -139,7 +145,8 @@ class DDQNAgent:
         if self.memory.qsize() < self.memory_collection_size:
             return
 
-        # self.recall()[5] is the TD error 
+        # self.recall()[5] is the TD error
+        #loss = weights * loss 
         loss = self.loss(self.recall_td_error_only())
         self.optimizer.zero_grad()
         loss.backward()
