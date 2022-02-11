@@ -104,9 +104,11 @@ class DDQNAgent:
         
         if td_error.ndim == 0:
             td_error = np.atleast_1d(td_error)
+            
+        priority  = np.abs(td_error) + 1e-7
 
         item = Experience(state, next_state, action, reward, done, td_error)
-        self.memory.put((td_error[0], item))
+        self.memory.put((priority, item))
         
     def recall(self):
         experiences = [self.memory.get()[1] for _ in range(self.batch_size)]
