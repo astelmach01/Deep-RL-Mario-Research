@@ -111,7 +111,7 @@ class DDQNAgent:
         if td_error.ndim == 0:
             td_error = np.atleast_1d(td_error)
             
-        priority  = np.abs(td_error[0]) + 1e-7
+        priority = np.abs(td_error[0]) + 1e-7
 
         item = Experience(state, next_state, action, reward, done, td_error)
         self.memory.put((priority, item))
@@ -145,11 +145,13 @@ class DDQNAgent:
         if self.memory.qsize() < self.memory_collection_size:
             return
 
-        # self.recall()[5] is the TD error
+        self.optimizer.zero_grad()
+        
+        #TODO: change to sampling instead of priority queue
         #loss = weights * loss 
         loss = self.loss(self.recall_td_error_only())
-        self.optimizer.zero_grad()
         loss.backward()
+        
         self.optimizer.step()
 
     def act(self, state):
