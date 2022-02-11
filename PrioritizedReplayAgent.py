@@ -110,7 +110,13 @@ class DDQNAgent:
         item = Experience(state, next_state, action, reward, done, td_error)
         self.memory.put((priority, item))
         
+    def recall_td_error_only(self):
+        experiences = [self.memory.get()[1] for _ in range(self.batch_size)]
+        td_error = list(map(lambda x: x.td_error, experiences))
+        return torch.tensor(td_error, dtype=torch.float32)
+    
     def recall(self):
+        # change to sampling instead of priority queue
         experiences = [self.memory.get()[1] for _ in range(self.batch_size)]
         
         state = list(map(lambda x: x.state, experiences))
@@ -118,11 +124,12 @@ class DDQNAgent:
         action = list(map(lambda x: x.action, experiences))
         reward = list(map(lambda x: x.reward, experiences))
         done = list(map(lambda x: x.done, experiences))
+        td_error = list(map(lambda x: x.td_error, experiences))
   
         state = torch.cat(state).view(self.batch_size, 4, 84, 84)
         next_state = torch.cat(next_state).view(self.batch_size, 4, 84, 84)
         
-        return state, next_state, torch.tensor(action, dtype=torch.int64), torch.tensor(reward, dtype=torch.float32), torch.tensor(done, dtype=torch.bool)
+        return state, next_state, torch.tensor(action, dtype=torch.int64), torch.tensor(reward, dtype=torch.float32), torch.tensor(done, dtype=torch.bool), torch.tensor(td_error, dtype=torch.float32)
 
     def experience_replay(self, step_reward):
         self.current_episode_reward += step_reward
@@ -131,15 +138,9 @@ class DDQNAgent:
             
         if self.memory.qsize() < self.memory_collection_size:
             return
-        
-        state, next_state, action, reward, done = self.recall()
-        q_estimate = self.net(state.cuda(), model="online")[np.arange(0, self.batch_size), action.cuda()]
-        with torch.no_grad():
-            best_action = torch.argmax(self.net(next_state.cuda(), model="online"), dim=1)
-            next_q = self.net(next_state.cuda(), model="target")[np.arange(0, self.batch_size), best_action]
-            q_target = (reward.cuda() + (1 - done.cuda().float()) * self.gamma * next_q).float()
-            
-        loss = self.loss(q_estimate, q_target)
+
+        # self.recall()[5] is the TD error 
+        loss = self.loss(self.recall_td_error_only())
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -191,7 +192,7 @@ def sweat():
         state = env.reset()
         while True:
             action = agent.act(state)
-            #env.render()
+            env.render()
             next_state, reward, done, _ = env.step(action)
             agent.remember(state, next_state, action, reward, done)
             
