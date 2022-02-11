@@ -90,11 +90,13 @@ class DDQNAgent:
 
     def remember(self, state, next_state, action, reward, done):
         # append to memory the state, next_state, action, reward, done with priority of TD error
-        next_state_pred = torch.tensor(next_state.__array__()).cuda().unsqueeze(0)
         state_pred = torch.tensor(state.__array__()).cuda().unsqueeze(0)
+        next_state_pred = torch.tensor(next_state.__array__()).cuda().unsqueeze(0)
         
-        # double check if should use max
-        td_error = reward + self.gamma * torch.max(self.net(next_state_pred, model="target")) - torch.max(self.net(state_pred, model="online"))
+        predicted = self.net(next_state_pred, model="target")
+        index = torch.argmax(predicted, dim=1).item()
+        
+        td_error = reward + self.gamma * torch.max(predicted) - self.net(state_pred, model="online")[0][index]
         td_error = td_error.cpu().detach().numpy()
         
         state = torch.tensor(state.__array__())
@@ -127,7 +129,7 @@ class DDQNAgent:
         if (self.current_step % self.sync_period) == 0:
             self.net.target.load_state_dict(self.net.online.state_dict())
             
-        if self.memory.qsize() < self.batch_size:
+        if self.memory.qsize() < self.memory_collection_size:
             return
         
         state, next_state, action, reward, done = self.recall()
@@ -187,7 +189,7 @@ def sweat():
         state = env.reset()
         while True:
             action = agent.act(state)
-            env.render()
+            #env.render()
             next_state, reward, done, _ = env.step(action)
             agent.remember(state, next_state, action, reward, done)
             agent.experience_replay(reward)
