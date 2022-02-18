@@ -218,12 +218,11 @@ def sweat():
         while True:
             action = agent.act(state)
             env.render()
-            next_state, reward, done, info = env.step(action)
-            agent.remember(state, next_state, action, reward, done)
             
-            if agent.current_step % replay_period == 0:
-                # log the average x position of the agent
-                agent.experience_replay(info["x_pos"])
+            next_state, reward, done, info = env.step(action)
+            
+            agent.remember(state, next_state, action, reward, done)
+            agent.experience_replay(reward)
                 
             state = next_state
             if done:
