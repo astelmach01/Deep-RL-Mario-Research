@@ -114,7 +114,7 @@ class DDQNAgent:
             self.weights.append(1)
         else:
 
-            self.weights.append(priority ** self.a) / sum(self.weights)
+            self.weights.append((priority ** self.a) / sum(self.weights))
 
 
     # these args should not be of batch size
