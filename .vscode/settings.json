@@ -1,0 +1,6 @@
+{
+    "terminal.integrated.gpuAcceleration": "off",
+    "editor.cursorSmoothCaretAnimation": true,
+    "editor.smoothScrolling": true,
+    "workbench.list.smoothScrolling": true
+}
