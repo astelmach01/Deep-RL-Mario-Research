@@ -106,7 +106,7 @@ class DDQNAgent:
 
         else:
             td_error = self.compute_td_error(state, next_state, action, reward, done)
-            priority = np.abs(td_error) + 1e-7
+            priority = np.abs(td_error) + 1e-5
 
         self.memory.append((state, next_state, torch.tensor([action]), torch.tensor([reward]), torch.tensor([done])))
 
