@@ -113,6 +113,7 @@ class DDQNAgent:
         if len(self.memory == 0):
             self.weights.append(1)
         else:
+
             self.weights.append(priority ** self.a) / sum(self.weights)
 
 
