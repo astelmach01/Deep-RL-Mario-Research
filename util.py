@@ -1,9 +1,13 @@
 import numpy as np
 import gym
+from gym.wrappers import *
+from nes_py.wrappers import JoypadSpace
 from gym.spaces import Box
 from pyrsistent import s
 from torchvision import transforms
 import torch
+import gym_super_mario_bros
+from gym_super_mario_bros.actions import RIGHT_ONLY, SIMPLE_MOVEMENT, COMPLEX_MOVEMENT, RIGHT_AND_JUMP, TEST
 
 class Counter(dict):
 
@@ -71,3 +75,13 @@ class Experience:
         
     def __lt__(self, other):
         return self.td_error < other.td_error
+    
+def setup_environment(actions=SIMPLE_MOVEMENT, skip=4, world='1', level='1'):
+    env = gym_super_mario_bros.make('SuperMarioBros-' + str(world) + '-' + str(level) + '-v0')
+    env = JoypadSpace(env, actions)
+    env = FrameStack(ResizeObservation(GrayScaleObservation(
+    SkipFrame(env, skip)), shape=84), num_stack=4)
+    env.seed(42)
+    env.action_space.seed(42)
+    
+    return env

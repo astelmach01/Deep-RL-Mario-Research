@@ -57,7 +57,7 @@ class DDQNAgent:
         self.exploration_rate_min = 0.01
         self.current_step = 0 # how many times we have chosen an action
         self.memory_collection_size = 6000 # how many experiences we will store before performing gradient descent
-        self.maxlen_memory = 70000 # max length of memory
+        self.maxlen_memory = 60000 # max length of memory
         
         self.batch_size = 64 # batch size for experience replay
         self.gamma = 0.95
@@ -104,14 +104,17 @@ class DDQNAgent:
         state = torch.tensor(state.__array__())
         next_state = torch.tensor(next_state.__array__())
         
-        td_error = self.compute_td_error(state, next_state, reward)
+        if done:
+            priority = reward
+        else:
+            td_error = self.compute_td_error(state, next_state, reward)
         
-        print(td_error.ndim)
-        
-        if td_error.ndim == 0:
-            td_error = np.atleast_1d(td_error)
+            print(td_error.ndim)
             
-        priority = np.abs(td_error[0]) + 1e-7
+            if td_error.ndim == 0:
+                td_error = np.atleast_1d(td_error)
+                
+            priority = np.abs(td_error[0]) + 1e-7
 
         item = Experience(state, next_state, action, reward, done, td_error)
         self.memory.put((priority, item))
@@ -202,14 +205,16 @@ def sweat():
         while True:
             action = agent.act(state)
             env.render()
-            next_state, reward, done, _ = env.step(action)
+            next_state, reward, done, info = env.step(action)
             agent.remember(state, next_state, action, reward, done)
             
             if agent.current_step % replay_period == 0:
-                agent.experience_replay(reward)
+                # log the average x position of the agent
+                agent.experience_replay(info["x_pos"])
                 
             state = next_state
             if done:
+
                 episode += 1
                 agent.log_episode()
                 if episode % checkpoint_period == 0:

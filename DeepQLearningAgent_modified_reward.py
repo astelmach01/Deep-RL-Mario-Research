@@ -130,15 +130,7 @@ class DDQNAgent:
         torch.save(dict(model=self.net.state_dict(), exploration_rate=self.exploration_rate), f=filename)
         print('Checkpoint saved to \'{}\''.format(filename))
 
-def setup_environment():
-    env = gym_super_mario_bros.make('SuperMarioBros-1-1-v0')
-    env = JoypadSpace(env, [["right"], ["right", "A"]])
-    env = FrameStack(ResizeObservation(GrayScaleObservation(
-    SkipFrame(env, skip=4)), shape=84), num_stack=4)
-    env.seed(42)
-    env.action_space.seed(42)
-    
-    return env
+
 
 def sweat():
     env = setup_environment()
@@ -163,8 +155,10 @@ def sweat():
             prev_score = info["score"]
             
             agent.remember(state, next_state, action, reward, done)
-            agent.experience_replay(reward)
+            agent.experience_replay(info["x_pos"]) # log average x_pos
+            
             state = next_state
+            
             if done:
                 episode += 1
                 agent.log_episode()
