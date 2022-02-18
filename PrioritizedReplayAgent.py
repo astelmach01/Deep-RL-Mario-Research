@@ -139,6 +139,7 @@ class DDQNAgent:
 
         self.weights  = self.weights / np.sum(self.weights)
         weight = 0
+        td = 0
 
         #TODO: optimize with vectorization
         for _ in range(self.batch_size):
@@ -149,7 +150,7 @@ class DDQNAgent:
             p_j = self.weights[j]
 
              # compute importance sampling weight
-            importance = ((len(self.memory) * w) ** -min(self.b, 1) / np.max(self.weights)
+            importance = ((len(self.memory) * w) ** -min(self.b, 1)) / np.max(self.weights)
 
             # compute td error
             td_error = self.compute_td_error(state, next_state, action.squeeze(), reward.squeeze(), done.squeeze())
@@ -159,11 +160,12 @@ class DDQNAgent:
 
             # accumulate weight change
             weight += importance * td_error
+            td += td_error
 
 
         self.optimizer.zero_grad()
 
-        loss = np.mean(self.loss(q_estimate, q_target) * weight)
+        loss = (self.loss(td) * weight) / self.batch_size
         loss.backward()
 
         self.optimizer.step()
