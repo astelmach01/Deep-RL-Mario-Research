@@ -227,8 +227,8 @@ def sweat():
                 
             state = next_state
             if done:
-                if self.b < 1:
-                    self.b += 1 / 10000
+                if agent.b < 1:
+                    agent.b += 1 / 10000
                 episode += 1
                 agent.log_episode()
                 if episode % checkpoint_period == 0:
