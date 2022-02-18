@@ -132,4 +132,6 @@ gym_super_mario_bros
 __pycache__
 tempCodeRunnerFile
 tempCodeRunnerFile.py
+.vscode
+checkpoints
 
