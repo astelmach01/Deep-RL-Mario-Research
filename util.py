@@ -62,19 +62,6 @@ class ResizeObservation(gym.ObservationWrapper):
         transformations = transforms.Compose(
             [transforms.Resize(self.shape), transforms.Normalize(0, 255)])
         return transformations(observation).squeeze(0)
-
-class Experience:
-    
-    def __init__(self, state, next_state, action, reward, done, td_error) -> None:
-        self.state = state
-        self.next_state = next_state
-        self.action = action
-        self.reward = reward
-        self.done = done
-        self.td_error = td_error
-        
-    def __lt__(self, other):
-        return self.td_error < other.td_error
     
 def setup_environment(actions=SIMPLE_MOVEMENT, skip=4, world='1', level='1'):
     env = gym_super_mario_bros.make('SuperMarioBros-' + str(world) + '-' + str(level) + '-v0')

@@ -56,16 +56,18 @@ class DDQNAgent:
         self.exploration_rate_decay = 0.999
         self.exploration_rate_min = 0.01
         self.current_step = 0 # how many times we have chosen an action
-        self.memory_collection_size = 6000 # how many experiences we will store before performing gradient descent
-        self.maxlen_memory = 60000 # max length of memory
+
         
         self.batch_size = 64 # batch size for experience replay
         self.gamma = 0.95
         self.sync_period = 10000 # how many times we update the target network
+        self.memory_collection_size = self.batch_size # how many experiences we will store before performing gradient descent
+        self.maxlen_memory = 60000 # max length of memory
         
-        self.optimizer = torch.optim.RMSprop(self.net.parameters(), lr=0.00025, momentum=0.95, eps=1e-5)
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=0.00025, eps=1e-4)
         self.loss = torch.nn.MSELoss()
-        self.memory: PriorityQueue = PriorityQueue(self.maxlen_memory)
+        self.memory = deque(self.maxlen_memory)
+        self.weights = deque(self.maxlen_memory)
         
         self.episode_rewards = []
         self.moving_average_episode_rewards = []
@@ -88,26 +90,20 @@ class DDQNAgent:
             plt.savefig(filename, format="png")
         plt.clf()
 
-    def compute_td_error(self, state, next_state, reward):
-        state_pred = state.cuda().unsqueeze(0)
-        next_state_pred = next_state.cuda().unsqueeze(0)
-        
-        target = self.net(next_state_pred, model="target")
-        online = self.net(state_pred, model="online")
 
-        td_error = reward + self.gamma * torch.max(target) - torch.max(online)
-        
-        return td_error.cpu().detach().numpy()
 
     def remember(self, state, next_state, action, reward, done):
         
         state = torch.tensor(state.__array__())
         next_state = torch.tensor(next_state.__array__())
         
+        priority = None
+
         if done:
             priority = reward
+
         else:
-            td_error = self.compute_td_error(state, next_state, reward)
+            td_error = self.compute_td_error(state, next_state, action, reward, done)
         
             print(td_error.ndim)
             
@@ -116,45 +112,59 @@ class DDQNAgent:
                 
             priority = np.abs(td_error[0]) + 1e-7
 
-        item = Experience(state, next_state, action, reward, done, td_error)
-        self.memory.put((priority, item))
+        self.memory.append((state, next_state, torch.tensor([action]), torch.tensor([reward]), torch.tensor([done])))
+        self.weights.append(priority ** self.a)
+
+
+    # these args should not be of batch size
+    def compute_td_error(self, state, next_state, action, reward, done):
+
+        q_estimate = self.net(state.cuda(), model="online")[action.cuda()]
+
+        with torch.no_grad():
+            best_action = torch.argmax(self.net(next_state.cuda(), model="online"))
+            next_q = self.net(next_state.cuda(), model="target")[best_action]
+            q_target = (reward.cuda() + (1 - done.cuda().float()) * self.gamma * next_q).float()
         
-    def recall_td_error_only(self):
-        experiences = [self.memory.get()[1] for _ in range(self.batch_size)]
-        td_error = list(map(lambda x: x.td_error, experiences))
-        return torch.tensor(td_error, dtype=torch.float32)
-    
-    def recall(self):
-        # change to sampling instead of priority queue
-        experiences = [self.memory.get()[1] for _ in range(self.batch_size)]
-        
-        state = list(map(lambda x: x.state, experiences))
-        next_state = list(map(lambda x: x.next_state, experiences))
-        action = list(map(lambda x: x.action, experiences))
-        reward = list(map(lambda x: x.reward, experiences))
-        done = list(map(lambda x: x.done, experiences))
-        td_error = list(map(lambda x: x.td_error, experiences))
-  
-        state = torch.cat(state).view(self.batch_size, 4, 84, 84)
-        next_state = torch.cat(next_state).view(self.batch_size, 4, 84, 84)
-        
-        return state, next_state, torch.tensor(action, dtype=torch.int64), torch.tensor(reward, dtype=torch.float32), torch.tensor(done, dtype=torch.bool), torch.tensor(td_error, dtype=torch.float32)
+        return np.abs(q_estimate - q_target)
 
     def experience_replay(self, step_reward):
         self.current_episode_reward += step_reward
         if (self.current_step % self.sync_period) == 0:
             self.net.target.load_state_dict(self.net.online.state_dict())
             
-        if self.memory.qsize() < self.memory_collection_size:
+        if len(self.memory) < self.memory_collection_size:
             return
 
+        self.weights  = self.weights / np.sum(self.weights)
+        weight = 0
+
+        #TODO: optimize with vectorization
+        for _ in range(self.batch_size):
+            state, next_state, action, reward, done = random.choices(self.memory, weights=self.weights, k=1)
+
+            # get index of this experience and its corresponding weight
+            j = np.where(self.memory == (state, next_state, action, reward, done))
+            p_j = self.weights[j]
+
+             # compute importance sampling weight
+            importance = ((len(self.memory) * w) ** -self.b) / np.max(self.weights)
+
+            # compute td error
+            td_error = self.compute_td_error(state, next_state, action.squeeze(), reward.squeeze(), done.squeeze())
+
+            #update transition priority
+            self.weights[j] = td_error
+
+            # accumulate weight change
+            weight += importance * td_error
+
+
         self.optimizer.zero_grad()
-        
-        #TODO: change to sampling instead of priority queue
-        #loss = weights * loss 
-        loss = self.loss(self.recall_td_error_only())
+
+        loss = np.mean(self.loss(q_estimate, q_target) * weight)
         loss.backward()
-        
+
         self.optimizer.step()
 
     def act(self, state):
