@@ -56,6 +56,8 @@ class DDQNAgent:
         self.exploration_rate_decay = 0.999
         self.exploration_rate_min = 0.01
         self.current_step = 0 # how many times we have chosen an action
+        self.a = 0.6
+        self.b = 0.4
 
         
         self.batch_size = 64 # batch size for experience replay
@@ -104,16 +106,14 @@ class DDQNAgent:
 
         else:
             td_error = self.compute_td_error(state, next_state, action, reward, done)
-        
-            print(td_error.ndim)
-            
-            if td_error.ndim == 0:
-                td_error = np.atleast_1d(td_error)
-                
-            priority = np.abs(td_error[0]) + 1e-7
+            priority = np.abs(td_error) + 1e-7
 
         self.memory.append((state, next_state, torch.tensor([action]), torch.tensor([reward]), torch.tensor([done])))
-        self.weights.append(priority ** self.a)
+
+        if len(self.memory == 0):
+            self.weights.append(1)
+        else:
+            self.weights.append(priority ** self.a) / sum(self.weights)
 
 
     # these args should not be of batch size
@@ -148,7 +148,7 @@ class DDQNAgent:
             p_j = self.weights[j]
 
              # compute importance sampling weight
-            importance = ((len(self.memory) * w) ** -self.b) / np.max(self.weights)
+            importance = ((len(self.memory) * w) ** -min(self.b, 1) / np.max(self.weights)
 
             # compute td error
             td_error = self.compute_td_error(state, next_state, action.squeeze(), reward.squeeze(), done.squeeze())
@@ -224,7 +224,8 @@ def sweat():
                 
             state = next_state
             if done:
-
+                if self.b < 1:
+                    self.b += 1 / 10000
                 episode += 1
                 agent.log_episode()
                 if episode % checkpoint_period == 0:
@@ -235,6 +236,8 @@ def sweat():
                         step=agent.current_step,
                         checkpoint_period=checkpoint_period
                     )
+
+                print("B: " + self.b)
                 break
 
 
