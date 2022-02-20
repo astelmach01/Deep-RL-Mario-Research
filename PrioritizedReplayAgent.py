@@ -5,10 +5,10 @@ import random
 from collections import deque
 from os.path import exists
 
-
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
+from torch.autograd import Variable
 
 from gym.wrappers import *
 from nes_py.wrappers import JoypadSpace
@@ -18,10 +18,10 @@ from torch.distributions import *
 from util import *
 import gym_super_mario_bros
 
-
 torch.manual_seed(42)
 torch.random.manual_seed(42)
 np.random.seed(42)
+
 
 class DDQNSolver(nn.Module):
     def __init__(self, output_dim):
@@ -38,12 +38,14 @@ class DDQNSolver(nn.Module):
             nn.ReLU(),
             nn.Linear(512, output_dim),
         )
-        
+
         self.target = copy.deepcopy(self.online)
         for p in self.target.parameters():
             p.requires_grad = False
 
     def forward(self, input, model):
+        if input.ndim == 3:
+            input = input.unsqueeze(0)
         return self.online(input) if model == "online" else self.target(input)
 
 
@@ -55,22 +57,22 @@ class DDQNAgent:
         self.exploration_rate = 1.0
         self.exploration_rate_decay = 0.999
         self.exploration_rate_min = 0.01
-        self.current_step = 0 # how many times we have chosen an action
+        self.current_step = 0  # how many times we have chosen an action
         self.a = 0.6
         self.b = 0.4
 
-        
-        self.batch_size = 64 # batch size for experience replay
+        self.batch_size = 64  # batch size for experience replay
         self.gamma = 0.95
-        self.sync_period = 10000 # how many times we update the target network
-        self.memory_collection_size = self.batch_size # how many experiences we will store before performing gradient descent
-        self.maxlen_memory = 60000 # max length of memory
-        
+        self.sync_period = 10000  # how many times we update the target network
+        self.memory_collection_size = self.batch_size  # how many experiences we will store before performing gradient descent
+        self.maxlen_memory = 60000  # max length of memory
+
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=0.00025, eps=1e-4)
         self.loss = torch.nn.MSELoss()
-        self.memory = deque(self.maxlen_memory)
-        self.weights = deque(self.maxlen_memory)
-        
+        self.memory = deque(maxlen=self.maxlen_memory)
+        self.weights = deque(maxlen=self.maxlen_memory)
+        self.dummy_memory = deque(maxlen=self.maxlen_memory)
+
         self.episode_rewards = []
         self.moving_average_episode_rewards = []
         self.current_episode_reward = 0.0
@@ -92,80 +94,102 @@ class DDQNAgent:
             plt.savefig(filename, format="png")
         plt.clf()
 
-
-
     def remember(self, state, next_state, action, reward, done):
-        
+
         state = torch.tensor(state.__array__())
         next_state = torch.tensor(next_state.__array__())
-        
+
         priority = None
 
         if done:
             priority = reward
 
         else:
-            td_error = self.compute_td_error(state, next_state, action, reward, done)
-            priority = np.abs(td_error) + 1e-5
+            q_estimate, q_target = self.compute_td_error(state, next_state, action, reward, done)
+            td_error = q_estimate - q_target
+            priority = torch.abs(td_error) + 1e-5
 
-        self.memory.append((state, next_state, torch.tensor([action]), torch.tensor([reward]), torch.tensor([done])))
-
-        if len(self.memory == 0):
-            self.weights.append(1)
+        if len(self.memory) == 0:
+            self.weights.append(np.array([1]))
         else:
+            temp = (priority.item() ** self.a) / np.sum(self.weights)
+            self.weights.append(temp)
 
-            self.weights.append((priority ** self.a) / sum(self.weights))
+        to_add = state, next_state, torch.tensor([action]), torch.tensor([reward]), torch.tensor([done])
+        self.memory.append(to_add)
+        self.dummy_memory.append(hash(to_add))
 
+    def recall(self):
+        state, next_state, action, reward, done = map(torch.stack,
+                                                      zip(*random.choice(self.memory, weights=self.weights,
+                                                                         k=self.batch_size)))
+
+        return state, next_state, action.squeeze(), reward.squeeze(), done.squeeze()
 
     # these args should not be of batch size
     def compute_td_error(self, state, next_state, action, reward, done):
 
-        q_estimate = self.net(state.cuda(), model="online")[action.cuda()]
+        q_estimate = self.net(state.cuda(), model="online").squeeze()[action]
 
         with torch.no_grad():
             best_action = torch.argmax(self.net(next_state.cuda(), model="online"))
-            next_q = self.net(next_state.cuda(), model="target")[best_action]
-            q_target = (reward.cuda() + (1 - done.cuda().float()) * self.gamma * next_q).float()
-        
-        return np.abs(q_estimate - q_target)
+            next_q = self.net(next_state.cuda(), model="target").squeeze()[best_action]
+            q_target = (reward + (1 - done) * self.gamma * next_q).float()
+
+        return q_estimate, q_target
 
     def experience_replay(self, step_reward):
         self.current_episode_reward += step_reward
         if (self.current_step % self.sync_period) == 0:
             self.net.target.load_state_dict(self.net.online.state_dict())
-            
+
         if len(self.memory) < self.memory_collection_size:
             return
 
-        self.weights  = self.weights / np.sum(self.weights)
+        s = np.sum(self.weights)[0]
+        self.weights = deque(self.weights / s, maxlen=self.maxlen_memory)
+
         weight = 0
         td = 0
+        q_est, q_t = 0, 0
 
-        #TODO: optimize with vectorization
+        # TODO: optimize with vectorization
         for _ in range(self.batch_size):
-            state, next_state, action, reward, done = random.choices(self.memory, weights=self.weights, k=1)
+            # so we dont choose the same
+            temp = list(zip(self.memory, self.weights))
+            random.shuffle(temp)
+            self.memory, self.weights = zip(*temp)
+            self.memory = deque(self.memory, maxlen=self.maxlen_memory)
+            self.weights = deque(self.weights, maxlen=self.maxlen_memory)
+
+            x = random.choices(self.dummy_memory, weights=self.weights, k=1)
+            j = self.dummy_memory.index(x[0])
+            state, next_state, action, reward, done = self.memory[j]
 
             # get index of this experience and its corresponding weight
-            j = np.where(self.memory == (state, next_state, action, reward, done))
             p_j = self.weights[j]
 
-             # compute importance sampling weight
-            importance = ((len(self.memory) * w) ** -min(self.b, 1)) / np.max(self.weights)
+            # compute importance sampling weight
+            importance = ((len(self.memory) * p_j) ** -min(self.b, 1)) / np.max(self.weights)
 
             # compute td error
-            td_error = self.compute_td_error(state, next_state, action.squeeze(), reward.squeeze(), done.squeeze())
+            q_estimate, q_target = self.compute_td_error(state, next_state, action.squeeze(), reward.squeeze(),
+                                                         done.squeeze())
+            td_error = torch.abs(q_target - q_estimate).cpu().detach().numpy()
 
-            #update transition priority
+            # update transition priority
             self.weights[j] = td_error
 
             # accumulate weight change
             weight += importance * td_error
             td += td_error
 
+            q_est += q_estimate
+            q_t += q_target
 
         self.optimizer.zero_grad()
 
-        loss = (self.loss(td) * weight) / self.batch_size
+        loss = self.loss(q_est, q_t) * torch.cuda.FloatTensor(np.array(weight))
         loss.backward()
 
         self.optimizer.step()
@@ -174,9 +198,9 @@ class DDQNAgent:
         if np.random.rand() < self.exploration_rate:
             action = np.random.randint(self.action_dim)
         else:
-            action_values = self.net(torch.tensor(state.__array__()).cuda().unsqueeze(0), model="online")
+            action_values = self.net(torch.tensor(state.__array__()).cuda(), model="online")
             action = torch.argmax(action_values, dim=1).item()
-            
+
         self.exploration_rate *= self.exploration_rate_decay
         self.exploration_rate = max(self.exploration_rate_min, self.exploration_rate)
         self.current_step += 1
@@ -192,25 +216,15 @@ class DDQNAgent:
         torch.save(dict(model=self.net.state_dict(), exploration_rate=self.exploration_rate), f=filename)
         print('Checkpoint saved to \'{}\''.format(filename))
 
-def setup_environment():
-    env = gym_super_mario_bros.make('SuperMarioBros-1-1-v0')
-    env = JoypadSpace(env, [["right"], ["right", "A"]])
-    env = FrameStack(ResizeObservation(GrayScaleObservation(
-    SkipFrame(env, skip=4)), shape=84), num_stack=4)
-    env.seed(42)
-    env.action_space.seed(42)
-    
-    return env
 
-def sweat():
+def train():
     env = setup_environment()
     episode = 0
-    checkpoint_period = 50
-    replay_period = 100
+    checkpoint_period = 30
     save_directory = "checkpoints"
-    load_checkpoint = 'checkpoint.pth'
+    load_checkpoint = None
     agent = DDQNAgent(action_dim=env.action_space.n, save_directory=save_directory)
-    if load_checkpoint is not None:
+    if load_checkpoint is not None and exists(save_directory + "/" + load_checkpoint):
         agent.load_checkpoint(save_directory + "/" + load_checkpoint)
 
     while True:
@@ -221,13 +235,15 @@ def sweat():
 
             next_state, reward, done, info = env.step(action)
 
+            done = 1 if done else 0
+
             agent.remember(state, next_state, action, reward, done)
             agent.experience_replay(reward)
-                
+
             state = next_state
             if done:
                 if agent.b < 1:
-                    agent.b += 1 / 10000
+                    agent.b += 1 / 100000
                 episode += 1
                 agent.log_episode()
                 if episode % checkpoint_period == 0:
@@ -239,12 +255,12 @@ def sweat():
                         checkpoint_period=checkpoint_period
                     )
 
-                print("B: " + self.b)
+                print("B: " + str(agent.b))
                 break
 
 
 def play():
-    env=setup_environment()
+    env = setup_environment()
     save_directory = "checkpoints"
     load_checkpoint = "checkpoint.pth"
     agent = DDQNAgent(action_dim=env.action_space.n, save_directory=save_directory)
@@ -263,4 +279,4 @@ def play():
 
 
 if __name__ == "__main__":
-    sweat()
+    train()

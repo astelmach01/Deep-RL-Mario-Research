@@ -31,12 +31,12 @@ class DDQNSolver(nn.Module):
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(3136, 512),
+            nn.Linear(3136, 256),
             nn.LeakyReLU(0.1),
             # added second deep layer
-            nn.Linear(512, 256),
+            nn.Linear(256, 128),
             nn.LeakyReLU(0.1),
-            nn.Linear(256, output_dim),
+            nn.Linear(128, output_dim),
         )
         self.target = copy.deepcopy(self.online)
         for p in self.target.parameters():
@@ -137,7 +137,7 @@ class DDQNAgent:
 def train():
     env = setup_environment(actions=SIMPLE_MOVEMENT, skip=2)
     episode = 0
-    checkpoint_period = 50
+    checkpoint_period = 30
     save_directory = "checkpoints"
     load_checkpoint = None
     agent = DDQNAgent(action_dim=env.action_space.n, save_directory=save_directory)

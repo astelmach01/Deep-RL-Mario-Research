@@ -4,7 +4,6 @@ import random
 from collections import deque
 from os.path import exists
 
-
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -17,10 +16,10 @@ from torch.distributions import *
 from util import *
 import gym_super_mario_bros
 
-
 torch.manual_seed(42)
 torch.random.manual_seed(42)
 np.random.seed(42)
+
 
 class DDQNSolver(nn.Module):
     def __init__(self, output_dim):
@@ -37,7 +36,7 @@ class DDQNSolver(nn.Module):
             nn.ReLU(),
             nn.Linear(1024, output_dim),
         )
-        
+
         self.target = copy.deepcopy(self.online)
         for p in self.target.parameters():
             p.requires_grad = False
@@ -82,7 +81,7 @@ class DDQNAgent:
         with open(filename, "w"):
             plt.savefig(filename, format="png")
         plt.clf()
-        
+
     def load_checkpoint(self, path):
         checkpoint = torch.load(path)
         self.net.load_state_dict(checkpoint['model'])
@@ -92,7 +91,6 @@ class DDQNAgent:
         filename = os.path.join(self.save_directory, 'checkpoint.pth')
         torch.save(dict(model=self.net.state_dict(), exploration_rate=self.exploration_rate), f=filename)
         print('Checkpoint saved to \'{}\''.format(filename))
-        
 
     def remember(self, state, next_state, action, reward, done):
         self.memory.append((torch.tensor(state.__array__()), torch.tensor(next_state.__array__()),
@@ -102,14 +100,17 @@ class DDQNAgent:
         self.current_episode_reward += step_reward
         if (self.current_step % self.sync_period) == 0:
             self.net.target.load_state_dict(self.net.online.state_dict())
-        if len(self.memory) < 6000:
+
+        if len(self.memory) < self.batch_size:
             return
+
         state, next_state, action, reward, done = self.recall()
         q_estimate = self.net(state.cuda(), model="online")[np.arange(0, self.batch_size), action.cuda()]
         with torch.no_grad():
             best_action = torch.argmax(self.net(next_state.cuda(), model="online"), dim=1)
             next_q = self.net(next_state.cuda(), model="target")[np.arange(0, self.batch_size), best_action]
             q_target = (reward.cuda() + (1 - done.cuda().float()) * self.gamma * next_q).float()
+        print(type(q_estimate), type(q_target))
         loss = self.loss(q_estimate, q_target)
         self.optimizer.zero_grad()
         loss.backward()
@@ -136,9 +137,10 @@ class DDQNAgent:
 def sweat():
     env = setup_environment(actions=SIMPLE_MOVEMENT, skip=2)
     episode = 0
-    checkpoint_period = 50
+    checkpoint_period = 10
     save_directory = "checkpoints"
-    load_checkpoint = 'checkpoint.pth'
+    load_checkpoint = None
+
     agent = DDQNAgent(action_dim=env.action_space.n, save_directory=save_directory)
     if load_checkpoint is not None and exists(save_directory + "/" + load_checkpoint):
         agent.load_checkpoint(save_directory + "/" + load_checkpoint)
@@ -148,26 +150,26 @@ def sweat():
         state = env.reset()
         done = False
         reward_per_episode = 0
-        while not done: # what happens during every episode
-            
+        while not done:  # what happens during every episode
+
             action = agent.act(state)
-            
+
             if episode >= 10000:
                 env.render()
-                
+
             next_state, reward, done, _ = env.step(action)
-            
+
             agent.remember(state, next_state, action, reward, done)
             agent.experience_replay(reward)
-            
+
             state = next_state
             reward_per_episode += reward
-            
+
             if done:
 
                 agent.log_episode()
                 episode += 1
-                
+
                 if episode % checkpoint_period == 0:
                     agent.save_checkpoint()
                     agent.log_period(episode, agent.exploration_rate, agent.current_step, checkpoint_period)
@@ -184,14 +186,13 @@ def play():
     while True:
         state = env.reset()
         done = False
-        
+
         while not done:
             action = agent.act(state)
             env.render()
-            
+
             next_state, _, done, _ = env.step(action)
             state = next_state
-            
 
 
 if __name__ == "__main__":
