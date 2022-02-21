@@ -3,7 +3,6 @@ import gym
 from gym.wrappers import *
 from nes_py.wrappers import JoypadSpace
 from gym.spaces import Box
-from pyrsistent import s
 from torchvision import transforms
 import torch
 import gym_super_mario_bros

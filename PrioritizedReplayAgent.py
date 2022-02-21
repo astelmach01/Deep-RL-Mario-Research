@@ -1,6 +1,5 @@
 import copy
 import os
-from queue import PriorityQueue
 import random
 from collections import deque
 from os.path import exists
@@ -16,7 +15,6 @@ from torch import nn
 from torch.distributions import *
 
 from util import *
-import gym_super_mario_bros
 
 torch.manual_seed(42)
 torch.random.manual_seed(42)
@@ -231,7 +229,9 @@ def train():
         state = env.reset()
         while True:
             action = agent.act(state)
-            env.render()
+            
+            if episode > 10000:
+                env.render()
 
             next_state, reward, done, info = env.step(action)
 
