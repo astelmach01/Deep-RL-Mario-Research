@@ -32,10 +32,10 @@ class DDQNSolver(nn.Module):
             nn.ReLU(),
             nn.Flatten(),
             nn.Linear(3136, 256),
-            nn.LeakyReLU(0.1),
+            nn.SELU(),
             # added second deep layer
             nn.Linear(256, 3 * output_dim),
-            nn.ReLU(),
+            nn.SELU(),
             nn.Linear(3 * output_dim, output_dim),
         )
         self.target = copy.deepcopy(self.online)
