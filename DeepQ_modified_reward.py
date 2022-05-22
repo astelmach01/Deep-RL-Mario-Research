@@ -4,23 +4,15 @@ import random
 from collections import deque
 from os.path import exists
 
-
 import matplotlib.pyplot as plt
-import numpy as np
-import torch
-
-from gym.wrappers import *
-from nes_py.wrappers import JoypadSpace
 from torch import nn
-from torch.distributions import *
 
 from util import *
-import gym_super_mario_bros
-
 
 torch.manual_seed(42)
 torch.random.manual_seed(42)
 np.random.seed(42)
+
 
 class DDQNSolver(nn.Module):
     def __init__(self, output_dim):
@@ -33,7 +25,7 @@ class DDQNSolver(nn.Module):
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(3136, 512),
+            nn.Linear(6336, 512),
             nn.ReLU(),
             nn.Linear(512, output_dim),
         )
@@ -56,10 +48,10 @@ class DDQNAgent:
         self.current_step = 0
         self.maxlen_memory = 70000
         self.memory = deque(maxlen=self.maxlen_memory)
-        self.batch_size = 64
+        self.batch_size = 256
         self.gamma = 0.95
         self.sync_period = 1e4
-        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=0.00025, eps=1e-4)
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=0.001, eps=1e-4)
         self.loss = torch.nn.SmoothL1Loss()
         self.episode_rewards = []
         self.moving_average_episode_rewards = []
@@ -131,9 +123,8 @@ class DDQNAgent:
         print('Checkpoint saved to \'{}\''.format(filename))
 
 
-
 def sweat():
-    env = setup_environment()
+    env = setup_environment(actions=SIMPLE_MOVEMENT, second=True)
     episode = 0
     checkpoint_period = 50
     save_directory = "checkpoints"
@@ -147,18 +138,19 @@ def sweat():
         prev_score = 0
         while True:
             action = agent.act(state)
-            env.render()
+
+            # env.render()
             next_state, reward, done, info = env.step(action)
-            
+
             # modify reward
             reward += (info["score"] - prev_score) / 100
             prev_score = info["score"]
-            
+
             agent.remember(state, next_state, action, reward, done)
-            agent.experience_replay(info["x_pos"]) # log average x_pos
-            
+            agent.experience_replay(reward)
+
             state = next_state
-            
+
             if done:
                 episode += 1
                 agent.log_episode()
@@ -193,4 +185,5 @@ def play():
 
 
 if __name__ == "__main__":
+    # right and jump
     sweat()

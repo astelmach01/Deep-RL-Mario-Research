@@ -4,21 +4,15 @@ import random
 from collections import deque
 from os.path import exists
 
-
 import matplotlib.pyplot as plt
-import numpy as np
-import torch
-
-from gym.wrappers import *
 from torch import nn
-from torch.distributions import *
 
 from util import *
-
 
 torch.manual_seed(42)
 torch.random.manual_seed(42)
 np.random.seed(42)
+
 
 class DDQNSolver(nn.Module):
     def __init__(self, output_dim):
@@ -31,13 +25,14 @@ class DDQNSolver(nn.Module):
             nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(3136, 256),
-            nn.LeakyReLU(0.1),
+            nn.Linear(3136, 512),
+            nn.ReLU(),
             # added second deep layer
-            nn.Linear(256, 128),
-            nn.LeakyReLU(0.1),
-            nn.Linear(128, output_dim),
+            nn.Linear(512, 512),
+            nn.ReLU(),
+            nn.Linear(512, output_dim),
         )
+
         self.target = copy.deepcopy(self.online)
         for p in self.target.parameters():
             p.requires_grad = False
@@ -91,16 +86,17 @@ class DDQNAgent:
         self.current_episode_reward += step_reward
         if (self.current_step % self.sync_period) == 0:
             self.net.target.load_state_dict(self.net.online.state_dict())
-        
+
         if len(self.memory) < self.batch_size:
             return
-        
+
         state, next_state, action, reward, done = self.recall()
         q_estimate = self.net(state.cuda(), model="online")[np.arange(0, self.batch_size), action.cuda()]
         with torch.no_grad():
             best_action = torch.argmax(self.net(next_state.cuda(), model="online"), dim=1)
             next_q = self.net(next_state.cuda(), model="target")[np.arange(0, self.batch_size), best_action]
             q_target = (reward.cuda() + (1 - done.cuda().float()) * self.gamma * next_q).float()
+
         loss = self.loss(q_estimate, q_target)
         self.optimizer.zero_grad()
         loss.backward()
@@ -135,9 +131,9 @@ class DDQNAgent:
 
 
 def train():
-    env = setup_environment(actions=SIMPLE_MOVEMENT, skip=2)
+    env = setup_environment(actions=SIMPLE_MOVEMENT, skip=4)
     episode = 0
-    checkpoint_period = 30
+    checkpoint_period = 50
     save_directory = "checkpoints"
     load_checkpoint = None
     agent = DDQNAgent(action_dim=env.action_space.n, save_directory=save_directory)
@@ -148,16 +144,19 @@ def train():
         state = env.reset()
         while True:
             action = agent.act(state)
-            
+            env.render()
+
             if episode >= 10000:
                 env.render()
-                
+
             next_state, reward, done, info = env.step(action)
-            agent.remember(state, next_state, action, reward, done)
+
+            if info['x_pos'] > 200:
+                agent.remember(state, next_state, action, reward, done)
             agent.experience_replay(reward)
-            
+
             state = next_state
-            
+
             if done:
                 episode += 1
                 agent.log_episode()
