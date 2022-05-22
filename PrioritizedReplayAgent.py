@@ -5,14 +5,7 @@ from collections import deque
 from os.path import exists
 
 import matplotlib.pyplot as plt
-import numpy as np
-import torch
-from torch.autograd import Variable
-
-from gym.wrappers import *
-from nes_py.wrappers import JoypadSpace
 from torch import nn
-from torch.distributions import *
 
 from util import *
 
@@ -108,7 +101,7 @@ class DDQNAgent:
             priority = torch.abs(td_error) + 1e-5
 
         if len(self.memory) == 0:
-            self.weights.append(np.array([1]))
+            self.weights.append(np.array([.05]))
         else:
             temp = (priority.item() ** self.a) / np.sum(self.weights)
             self.weights.append(temp)
@@ -173,6 +166,7 @@ class DDQNAgent:
             # compute td error
             q_estimate, q_target = self.compute_td_error(state, next_state, action.squeeze(), reward.squeeze(),
                                                          done.squeeze())
+
             td_error = torch.abs(q_target - q_estimate).cpu().detach().numpy()
 
             # update transition priority
@@ -187,7 +181,7 @@ class DDQNAgent:
 
         self.optimizer.zero_grad()
 
-        loss = self.loss(q_est, q_t) * torch.cuda.FloatTensor(np.array(weight))
+        loss = (self.loss(q_est, q_t) * torch.cuda.FloatTensor(np.array(weight))) * - 1
         loss.backward()
 
         self.optimizer.step()
@@ -218,7 +212,7 @@ class DDQNAgent:
 def train():
     env = setup_environment()
     episode = 0
-    checkpoint_period = 30
+    checkpoint_period = 50
     save_directory = "checkpoints"
     load_checkpoint = None
     agent = DDQNAgent(action_dim=env.action_space.n, save_directory=save_directory)
@@ -229,15 +223,15 @@ def train():
         state = env.reset()
         while True:
             action = agent.act(state)
-            
+
             if episode > 10000:
                 env.render()
 
             next_state, reward, done, info = env.step(action)
 
             done = 1 if done else 0
-
-            agent.remember(state, next_state, action, reward, done)
+            if info['x_pos'] > 200:
+                agent.remember(state, next_state, action, reward, done)
             agent.experience_replay(reward)
 
             state = next_state

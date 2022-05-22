@@ -1,12 +1,14 @@
-import numpy as np
 import gym
+import numpy as np
+import torch
+from gym.spaces import Box
 from gym.wrappers import *
 from nes_py.wrappers import JoypadSpace
-from gym.spaces import Box
 from torchvision import transforms
-import torch
+
 import gym_super_mario_bros
-from gym_super_mario_bros.actions import RIGHT_ONLY, SIMPLE_MOVEMENT, COMPLEX_MOVEMENT, RIGHT_AND_JUMP, TEST
+from gym_super_mario_bros.actions import RIGHT_AND_JUMP
+
 
 class Counter(dict):
 
@@ -18,7 +20,6 @@ class Counter(dict):
         idx = str(idx)
         self.setdefault(idx, np.zeros(self.size))
         return dict.__getitem__(self, idx)
-
 
 
 class SkipFrame(gym.Wrapper):
@@ -61,13 +62,30 @@ class ResizeObservation(gym.ObservationWrapper):
         transformations = transforms.Compose(
             [transforms.Resize(self.shape), transforms.Normalize(0, 255)])
         return transformations(observation).squeeze(0)
-    
-def setup_environment(actions=SIMPLE_MOVEMENT, skip=4, world='1', level='1'):
-    env = gym_super_mario_bros.make('SuperMarioBros-' + str(world) + '-' + str(level) + '-v0')
+
+
+# removes the top part of the image
+class CropImage(gym.ObservationWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+
+    def observation(self, observation):
+        return observation[20:, :]
+
+
+def setup_environment(actions=RIGHT_AND_JUMP, skip=4, second=False):
+    if second:
+        env = gym.make("SuperMarioBros2-v0")
+    else:
+        env = gym_super_mario_bros.make('SuperMarioBros-v0')
     env = JoypadSpace(env, actions)
-    env = FrameStack(ResizeObservation(GrayScaleObservation(
-    SkipFrame(env, skip)), shape=84), num_stack=4)
+    env = FrameStack(
+        ResizeObservation(
+            GrayScaleObservation(
+                SkipFrame(env, skip)),
+            shape=120),
+        num_stack=4)
     env.seed(42)
     env.action_space.seed(42)
-    
+
     return env
