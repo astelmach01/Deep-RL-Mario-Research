@@ -86,7 +86,7 @@ def setup_environment(actions=RIGHT_AND_JUMP, skip=4, second=False):
             GrayScaleObservation(
                 SkipFrame(env, skip)),
             shape=120),
-        num_stack=4)
+        num_stack=5)
     env.seed(42)
     env.action_space.seed(42)
 

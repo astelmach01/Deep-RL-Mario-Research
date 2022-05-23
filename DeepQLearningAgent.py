@@ -1,18 +1,14 @@
-import torch
-from stable_baselines3.common.vec_env import DummyVecEnv
-from stable_baselines3.common.policies import *
-from stable_baselines3 import DQN
 import os
-import random
-from collections import deque
 from os.path import exists
 
 import matplotlib.pyplot as plt
-from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 from nes_py.app.play_human import play_human
-from torch import nn
-from resnet import *
+from stable_baselines3 import DQN
+from stable_baselines3.common.policies import *
+from stable_baselines3.common.vec_env import DummyVecEnv
 
+from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
+from resnet import *
 from util import *
 
 torch.manual_seed(42)
@@ -23,12 +19,12 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class DDQNSolver(nn.Module):
-    def __init__(self, output_dim, resnet):
+    def __init__(self, in_channels, output_dim, resnet):
         super().__init__()
 
         if not resnet:
             self.online = nn.Sequential(
-                nn.Conv2d(in_channels=4, out_channels=32,
+                nn.Conv2d(in_channels=in_channels, out_channels=32,
                           kernel_size=8, stride=4),
                 nn.ReLU(),
                 nn.Conv2d(in_channels=32, out_channels=64,
@@ -45,7 +41,7 @@ class DDQNSolver(nn.Module):
 
         else:
             self.online = ResNet(
-                4, ResBlock, [2, 2, 2, 2], useBottleneck=False, outputs=output_dim)
+                in_channels, ResBlock, [2, 2, 2, 2], useBottleneck=False, outputs=output_dim)
 
         self.target = copy.deepcopy(self.online)
         for p in self.target.parameters():
@@ -60,10 +56,10 @@ class DDQNSolver(nn.Module):
 
 
 class DDQNAgent:
-    def __init__(self, action_dim, save_directory, resnet=False):
+    def __init__(self, input_channels, action_dim, save_directory, resnet=False):
         self.action_dim = action_dim
         self.save_directory = save_directory
-        self.net = DDQNSolver(self.action_dim, resnet).to(device)
+        self.net = DDQNSolver(input_channels, self.action_dim, resnet).to(device)
         self.exploration_rate = 1.0
         self.exploration_rate_decay = 0.999
         self.exploration_rate_min = 0.01
@@ -117,7 +113,7 @@ class DDQNAgent:
 
         with torch.no_grad():
             pred = self.net(state.unsqueeze(dim=0).to(device), "online")
-            error = torch.abs(pred[0, action.to(device)] - reward.to(device))
+            error = torch.abs(pred[0, action] - reward)
         
         self.memory.append(error, sample)
 
@@ -223,11 +219,10 @@ def loop(env, agent, num_episodes=40000, checkpoint_period=20, render=False):
 
 def train_with_demonstration(resnet=True):
     env = setup_environment(actions=SIMPLE_MOVEMENT, skip=3, second=False)
-
     # collect replay experiences
     buffer = play_human(env)
 
-    agent = DDQNAgent(action_dim=env.action_space.n,
+    agent = DDQNAgent(input_channels=env.observation_space.shape[0], action_dim=env.action_space.n,
                       save_directory="checkpoints", resnet=resnet)
     
     for experience in buffer:
@@ -251,7 +246,7 @@ def sweat(agent=None):
     load_checkpoint = None
 
     if agent is None:
-        agent = DDQNAgent(action_dim=env.action_space.n,
+        agent = DDQNAgent(input_channels=env.observation_space.shape[0], action_dim=env.action_space.n,
                           save_directory=save_directory, resnet=True)
     if load_checkpoint is not None and exists(save_directory + "/" + load_checkpoint):
         agent.load_checkpoint(save_directory + "/" + load_checkpoint)
@@ -310,4 +305,4 @@ def stable_baselines():
 
 if __name__ == "__main__":
     # changed so no individual stages
-    train_with_demonstration()
+    sweat()
