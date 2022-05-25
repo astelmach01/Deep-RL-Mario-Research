@@ -10,6 +10,9 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 from resnet import *
 from util import *
+import time
+from torchsummary import summary
+
 
 torch.manual_seed(42)
 torch.random.manual_seed(42)
@@ -40,16 +43,15 @@ class DDQNSolver(nn.Module):
             )
 
         else:
-            self.online = ResNet(
-                in_channels, ResBlock, [2, 2, 2, 2], useBottleneck=False, outputs=output_dim)
+            self.online = get_pretrained_resnet(in_channels, output_dim)
 
         self.target = copy.deepcopy(self.online)
         for p in self.target.parameters():
             p.requires_grad = False
-            
+
         print("DDQN model initialized")
         print("Online model:")
-        print(self.online)
+        print(summary(self.online.to(device), (in_channels, 224, 224)))
 
     def forward(self, input, model):
         return self.online(input) if model == "online" else self.target(input)
@@ -59,14 +61,15 @@ class DDQNAgent:
     def __init__(self, input_channels, action_dim, save_directory, resnet=False):
         self.action_dim = action_dim
         self.save_directory = save_directory
-        self.net = DDQNSolver(input_channels, self.action_dim, resnet).to(device)
+        self.net = DDQNSolver(
+            input_channels, self.action_dim, resnet).to(device)
         self.exploration_rate = 1.0
         self.exploration_rate_decay = 0.999
         self.exploration_rate_min = 0.01
         self.current_step = 0
-        self.maxlen_memory = 60000
+        self.maxlen_memory = 50000
         self.memory = Memory(self.maxlen_memory)
-        self.batch_size = 100
+        self.batch_size = 128
         self.gamma = 0.95
         self.sync_period = 1e4
         self.optimizer = torch.optim.Adam(
@@ -106,43 +109,49 @@ class DDQNAgent:
         print('Checkpoint saved to \'{}\''.format(filename))
 
     def remember(self, state, next_state, action, reward, done):
-        done = 1 if done else 0
-        state = torch.tensor(state.__array__())
-        sample = (state, torch.tensor(next_state.__array__()),
-                  torch.tensor([action]), torch.tensor([reward]), torch.tensor([done]))
+        state = torch.tensor(state.__array__()).to(device)
+        next_state = torch.tensor(next_state.__array__()).to(device)
+        action = torch.tensor(action).to(device)
+        reward = torch.tensor(reward).to(device)
+        done = torch.tensor(done).to(device)
+
+        sample = (state, next_state, action, reward, done)
 
         with torch.no_grad():
             pred = self.net(state.unsqueeze(dim=0).to(device), "online")
-            error = torch.abs(pred[0, action] - reward)
-        
+            error = torch.abs(pred[0, action.to(device)] - reward.to(device))
+
         self.memory.append(error, sample)
 
     def gradient_descent(self):
         idxs, is_weights, sampled = self.recall()
 
+        length = len(idxs)
+
         state, next_state, action, reward, done = sampled
 
         q_estimate = self.net(state.cuda(), model="online")[
-            np.arange(0, self.batch_size), action.cuda()]
+            np.arange(0, length), action.cuda()]
         with torch.no_grad():
             best_action = torch.argmax(
                 self.net(next_state.cuda(), model="online"), dim=1)
             next_q = self.net(next_state.cuda(), model="target")[
-                np.arange(0, self.batch_size), best_action]
+                np.arange(0, length), best_action]
             q_target = (reward.cuda() + (1 - done.cuda().float())
                         * self.gamma * next_q).float()
 
         # update priorities
         error = torch.abs(q_estimate - q_target)
-        for i in range(self.batch_size):
+        for i in range(length):
             self.memory.update(idxs[i], error[i])
 
         self.optimizer.zero_grad()
 
         # loss incorporates importance sampling weights
-        loss = self.loss(q_estimate, q_target) * (error * is_weights.cuda()).mean()
+        loss = self.loss(q_estimate, q_target) * \
+            (error * is_weights.cuda()).mean()
         loss.backward()
-        
+
         self.optimizer.step()
 
     def experience_replay(self, step_reward):
@@ -161,11 +170,14 @@ class DDQNAgent:
         idxs = torch.tensor(idxs)
         is_weight = torch.tensor(is_weight)
 
-        state = torch.stack([sample[0] for sample in batch])
-        next_state = torch.stack([sample[1] for sample in batch])
-        action = torch.stack([sample[2] for sample in batch])
-        reward = torch.stack([sample[3] for sample in batch])
-        done = torch.stack([sample[4] for sample in batch])
+        state, next_state, action, reward, done = map(lambda x: torch.stack(x).to(device),
+                                                      zip(*batch))
+
+        # state = torch.stack([sample[0] for sample in batch])
+        # next_state = torch.stack([sample[1] for sample in batch])
+        # action = torch.stack([sample[2] for sample in batch])
+        # reward = torch.stack([sample[3] for sample in batch])
+        # done = torch.stack([sample[4] for sample in batch])
         return idxs, is_weight, (state, next_state, action.squeeze(), reward.squeeze(), done.squeeze())
 
     def act(self, state):
@@ -182,7 +194,7 @@ class DDQNAgent:
         return action
 
 
-def loop(env, agent, num_episodes=40000, checkpoint_period=20, render=False):
+def loop(env: gym.ObservationWrapper, agent: DDQNAgent, num_episodes=40000, checkpoint_period=20, render=False):
     episode = 0
     for _ in range(num_episodes):
         try:
@@ -193,7 +205,7 @@ def loop(env, agent, num_episodes=40000, checkpoint_period=20, render=False):
 
                 action = agent.act(state)
 
-                if render:
+                if render or episode > 400:
                     env.render()
 
                 next_state, reward, done, info = env.step(action)
@@ -216,17 +228,33 @@ def loop(env, agent, num_episodes=40000, checkpoint_period=20, render=False):
         except KeyboardInterrupt:
             render = not render
 
+            if not render:
+                env.close()
+
+            continue
+
+        except Exception as e:
+            print(e)
+            break
+
 
 def train_with_demonstration(resnet=True):
     env = setup_environment(actions=SIMPLE_MOVEMENT, skip=3, second=False)
     # collect replay experiences
+
+    curr_time = time.time()
+    # print formatted time
+    print("Current time: %s" % time.strftime(
+        "%H:%M:%S", time.localtime(curr_time)))
+
     buffer = play_human(env)
 
     agent = DDQNAgent(input_channels=env.observation_space.shape[0], action_dim=env.action_space.n,
                       save_directory="checkpoints", resnet=resnet)
-    
+
     for experience in buffer:
-        agent.remember(experience[0], experience[1], experience[2], experience[3], experience[4])
+        agent.remember(experience[0], experience[1],
+                       experience[2], experience[3], experience[4])
 
     k = len(agent.memory)
     print(k)
@@ -234,34 +262,35 @@ def train_with_demonstration(resnet=True):
     for _ in range(k):
         agent.gradient_descent()
 
-    print("Demonstration finished")
+    print("Demonstration finished in: ", time.time() - curr_time)
     sweat(agent=agent)
 
 
 def sweat(agent=None):
     env = setup_environment(actions=SIMPLE_MOVEMENT, skip=3, second=False)
 
+    num_episodes = 40000
     checkpoint_period = 20
+
     save_directory = "checkpoints"
     load_checkpoint = None
 
     if agent is None:
         agent = DDQNAgent(input_channels=env.observation_space.shape[0], action_dim=env.action_space.n,
                           save_directory=save_directory, resnet=True)
+
     if load_checkpoint is not None and exists(save_directory + "/" + load_checkpoint):
         agent.load_checkpoint(save_directory + "/" + load_checkpoint)
 
-    num_episodes = 40000
-
-    loop(env, agent, num_episodes, checkpoint_period, render=True)
+    loop(env, agent, num_episodes, checkpoint_period, render=False)
 
 
 def play():
     env = setup_environment(actions=SIMPLE_MOVEMENT, skip=3, second=False)
     save_directory = "checkpoints"
     load_checkpoint = "checkpoint.pth"
-    agent = DDQNAgent(action_dim=env.action_space.n,
-                      save_directory=save_directory)
+    agent = DDQNAgent(input_channels=env.observation_space.shape[0], action_dim=env.action_space.n,
+                      save_directory=save_directory, resnet=True)
     if load_checkpoint is not None and exists(save_directory + "/" + load_checkpoint):
         agent.load_checkpoint(save_directory + "/" + load_checkpoint)
 

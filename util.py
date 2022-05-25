@@ -172,6 +172,9 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
         return (torch.abs(error) + self.e) ** self.a
 
     def append(self, error, sample):
+        if type(sample) is not tuple:
+            print("data is not tuple, debug Memory append method")
+
         p = self._get_priority(error)
         self.tree.add(p, sample)
 
@@ -189,6 +192,11 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
 
             s = random.uniform(a, b)
             (idx, p, data) = self.tree.get(s)
+
+            if type(data) is not tuple:
+                print("data is not tuple, debug Memory sample method")
+                continue
+
             priorities.append(p)
             batch.append(data)
             idxs.append(idx)
