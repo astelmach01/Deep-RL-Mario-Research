@@ -1,21 +1,28 @@
+from black import out
 import torch
 import torch.nn as nn
+from torchvision.models import efficientnet_b1, mobilenet_v3_small, regnet_x_1_6gf
+
+
 
 
 class ResBlock(nn.Module):
     def __init__(self, in_channels, out_channels, downsample):
         super().__init__()
         if downsample:
-            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=2, padding=1)
+            self.conv1 = nn.Conv2d(
+                in_channels, out_channels, kernel_size=3, stride=2, padding=1)
             self.shortcut = nn.Sequential(
                 nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=2),
                 nn.BatchNorm2d(out_channels)
             )
         else:
-            self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+            self.conv1 = nn.Conv2d(
+                in_channels, out_channels, kernel_size=3, stride=1, padding=1)
             self.shortcut = nn.Sequential()
 
-        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels,
+                               kernel_size=3, stride=1, padding=1)
         self.bn1 = nn.BatchNorm2d(out_channels)
         self.bn2 = nn.BatchNorm2d(out_channels)
 
@@ -35,7 +42,8 @@ class ResBottleneckBlock(nn.Module):
                                kernel_size=1, stride=1)
         self.conv2 = nn.Conv2d(
             out_channels // 4, out_channels // 4, kernel_size=3, stride=2 if downsample else 1, padding=1)
-        self.conv3 = nn.Conv2d(out_channels // 4, out_channels, kernel_size=1, stride=1)
+        self.conv3 = nn.Conv2d(
+            out_channels // 4, out_channels, kernel_size=1, stride=1)
 
         if self.downsample or in_channels != out_channels:
             self.shortcut = nn.Sequential(
@@ -60,7 +68,7 @@ class ResBottleneckBlock(nn.Module):
 
 
 class ResNet(nn.Module):
-    def __init__(self, in_channels, resblock, repeat, outputs, useBottleneck=False):
+    def __init__(self, in_channels, resblock, repeat, outputs, useBottleneck=False, trainable=False):
         super().__init__()
         self.layer0 = nn.Sequential(
             nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3),
@@ -75,30 +83,43 @@ class ResNet(nn.Module):
             filters = [64, 64, 128, 256, 512]
 
         self.layer1 = nn.Sequential()
-        self.layer1.add_module('conv2_1', resblock(filters[0], filters[1], downsample=False))
+        self.layer1.add_module('conv2_1', resblock(
+            filters[0], filters[1], downsample=False))
         for i in range(1, repeat[0]):
-            self.layer1.add_module('conv2_%d' % (i + 1,), resblock(filters[1], filters[1], downsample=False))
+            self.layer1.add_module('conv2_%d' % (
+                i + 1,), resblock(filters[1], filters[1], downsample=False))
 
         self.layer2 = nn.Sequential()
-        self.layer2.add_module('conv3_1', resblock(filters[1], filters[2], downsample=True))
+        self.layer2.add_module('conv3_1', resblock(
+            filters[1], filters[2], downsample=True))
         for i in range(1, repeat[1]):
             self.layer2.add_module('conv3_%d' % (
                 i + 1,), resblock(filters[2], filters[2], downsample=False))
 
         self.layer3 = nn.Sequential()
-        self.layer3.add_module('conv4_1', resblock(filters[2], filters[3], downsample=True))
+        self.layer3.add_module('conv4_1', resblock(
+            filters[2], filters[3], downsample=True))
         for i in range(1, repeat[2]):
             self.layer3.add_module('conv2_%d' % (
                 i + 1,), resblock(filters[3], filters[3], downsample=False))
 
         self.layer4 = nn.Sequential()
-        self.layer4.add_module('conv5_1', resblock(filters[3], filters[4], downsample=True))
+        self.layer4.add_module('conv5_1', resblock(
+            filters[3], filters[4], downsample=True))
         for i in range(1, repeat[3]):
-            self.layer4.add_module('conv3_%d' % (i + 1,), resblock(filters[4], filters[4], downsample=False))
+            self.layer4.add_module('conv3_%d' % (
+                i + 1,), resblock(filters[4], filters[4], downsample=False))
 
         self.gap = torch.nn.AdaptiveAvgPool2d(1)
+
+        # freeze the model
+        if not trainable:
+            for param in self.parameters():
+                param.requires_grad = False
+
         self.first_fc = nn.Linear(filters[4], 2048)
-        self.fc = nn.Linear(2048, outputs)
+        self.second_fc = nn.Linear(2048, 2048)
+        self.output = nn.Linear(2048, outputs)
 
     def forward(self, input):
         input = self.layer0(input)
@@ -109,6 +130,36 @@ class ResNet(nn.Module):
         input = self.gap(input)
         input = torch.flatten(input, start_dim=1)
         input = self.first_fc(input)
-        input = self.fc(input)
+        input = self.second_fc(input)
+        input = self.output(input)
 
         return input
+
+
+def get_pretrained_model(in_channels, output_size, model):
+
+    input = nn.Conv2d(in_channels, 3, kernel_size=5)
+
+    if model == 'efficientnet':
+        model = efficientnet_b1(pretrained=True)
+    
+    elif model == 'mobilenet':
+        model = mobilenet_v3_small(pretrained=True)
+        
+    elif model == 'regnext':
+        model = regnet_x_1_6gf(pretrained=True)
+        
+    elif model == "convnext":
+        print("Figure out the model")
+
+    # freeze the model
+    for param in model.parameters():
+        param.requires_grad = False
+
+    final = nn.Sequential(
+        nn.Linear(1000, 2048),
+        nn.Linear(2048, output_size)
+    )
+
+    # add two fully connected layers
+    return torch.nn.Sequential(input, model, final)
