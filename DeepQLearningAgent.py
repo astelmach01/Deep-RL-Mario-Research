@@ -52,7 +52,7 @@ class DDQNSolver(nn.Module):
 
         print("DDQN model initialized")
         print("Online model:")
-        print(summary(self.online.to(device), (in_channels, 100, 120)))
+        print(summary(self.online.to(device), (in_channels, 224, 224)))
 
     def forward(self, input, model):
         return self.online(input) if model == "online" else self.target(input)
@@ -70,7 +70,7 @@ class DDQNAgent:
         self.current_step = 0
         self.maxlen_memory = 50000
         self.memory = Memory(self.maxlen_memory)
-        self.batch_size = 64
+        self.batch_size = 128
         self.gamma = 0.95
         self.sync_period = 1e4
         self.optimizer = torch.optim.Adam(
@@ -194,6 +194,7 @@ def loop(env: gym.ObservationWrapper, agent: DDQNAgent, num_episodes=40000, chec
     episode = 0
     for _ in range(num_episodes):
         try:
+            curr_time = time.time()
             state = env.reset()
             done = False
             reward_per_episode = 0
@@ -220,6 +221,10 @@ def loop(env: gym.ObservationWrapper, agent: DDQNAgent, num_episodes=40000, chec
                         agent.save_checkpoint()
                         agent.log_period(
                             episode, agent.exploration_rate, agent.current_step, checkpoint_period)
+                        
+                    # print how many seconds it took
+                    print("Took {:.2f} seconds".format(time.time() - curr_time))
+                    curr_time = time.time()
 
         except KeyboardInterrupt:
             render = not render
@@ -227,7 +232,7 @@ def loop(env: gym.ObservationWrapper, agent: DDQNAgent, num_episodes=40000, chec
 
 
 def train_with_demonstration(model='mobilenet'):
-    env = setup_environment(actions=SIMPLE_MOVEMENT, skip=3, second=False)
+    env = setup_environment(actions=SIMPLE_MOVEMENT, skip=4, second=False)
     # collect replay experiences
 
     curr_time = time.time()
@@ -255,7 +260,7 @@ def train_with_demonstration(model='mobilenet'):
 
 
 def sweat(agent=None, model='mobilenet', render=False):
-    env = setup_environment(actions=SIMPLE_MOVEMENT, skip=3, second=False)
+    env = setup_environment(actions=SIMPLE_MOVEMENT, skip=4, second=False)
 
     num_episodes = 40000
     checkpoint_period = 20
@@ -274,7 +279,7 @@ def sweat(agent=None, model='mobilenet', render=False):
 
 
 def play():
-    env = setup_environment(actions=SIMPLE_MOVEMENT, skip=3, second=False)
+    env = setup_environment(actions=SIMPLE_MOVEMENT, skip=4, second=False)
     save_directory = "checkpoints"
     load_checkpoint = "checkpoint.pth"
     agent = DDQNAgent(input_channels=env.observation_space.shape[0], action_dim=env.action_space.n,
@@ -322,5 +327,7 @@ def stable_baselines():
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()
+
     # changed so no individual stages
-    sweat(model='regnext')
+    sweat(model='efficientnet')
+

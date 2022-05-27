@@ -1,7 +1,9 @@
 from black import out
 import torch
 import torch.nn as nn
-from torchvision.models import efficientnet_b0, mobilenet_v3_small, regnet_x_1_6gf
+from torchvision.models import efficientnet_b1, mobilenet_v3_small, regnet_x_1_6gf
+
+
 
 
 class ResBlock(nn.Module):
@@ -136,16 +138,19 @@ class ResNet(nn.Module):
 
 def get_pretrained_model(in_channels, output_size, model):
 
-    input = nn.Conv2d(in_channels, 3, kernel_size=7)
+    input = nn.Conv2d(in_channels, 3, kernel_size=5)
 
     if model == 'efficientnet':
-        model = efficientnet_b0(pretrained=True)
+        model = efficientnet_b1(pretrained=True)
     
     elif model == 'mobilenet':
         model = mobilenet_v3_small(pretrained=True)
         
     elif model == 'regnext':
         model = regnet_x_1_6gf(pretrained=True)
+        
+    elif model == "convnext":
+        print("Figure out the model")
 
     # freeze the model
     for param in model.parameters():
