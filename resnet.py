@@ -1,7 +1,7 @@
 from black import out
 import torch
 import torch.nn as nn
-from torchvision.models import resnet50
+from torchvision.models import efficientnet_b0, mobilenet_v3_small, regnet_x_1_6gf
 
 
 class ResBlock(nn.Module):
@@ -134,20 +134,27 @@ class ResNet(nn.Module):
         return input
 
 
-def get_pretrained_resnet(in_channels, output_size):
-    
+def get_pretrained_model(in_channels, output_size, model):
+
     input = nn.Conv2d(in_channels, 3, kernel_size=7)
+
+    if model == 'efficientnet':
+        model = efficientnet_b0(pretrained=True)
     
-    model = resnet50(pretrained=True)
-    
+    elif model == 'mobilenet':
+        model = mobilenet_v3_small(pretrained=True)
+        
+    elif model == 'regnext':
+        model = regnet_x_1_6gf(pretrained=True)
+
+    # freeze the model
     for param in model.parameters():
         param.requires_grad = False
-        
 
     final = nn.Sequential(
         nn.Linear(1000, 2048),
         nn.Linear(2048, output_size)
     )
-        
-    # add two fully connected layers of size 2048, as well as an
+
+    # add two fully connected layers
     return torch.nn.Sequential(input, model, final)

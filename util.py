@@ -58,7 +58,8 @@ class ResizeObservation(gym.ObservationWrapper):
         super().__init__(env)
         self.shape = (shape, shape)
         obs_shape = self.shape + self.observation_space.shape[2:]
-        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
+        self.observation_space = Box(
+            low=0, high=255, shape=obs_shape, dtype=np.uint8)
 
     def observation(self, observation):
         transformations = transforms.Compose(
@@ -82,10 +83,12 @@ def setup_environment(actions=RIGHT_AND_JUMP, skip=4, second=False):
         env = gym_super_mario_bros.make('SuperMarioBros-v0')
     env = JoypadSpace(env, actions)
     env = FrameStack(
-        ResizeObservation(
-            GrayScaleObservation(
-                SkipFrame(env, skip)),
-            shape=120),
+        CropImage(
+            ResizeObservation(
+                GrayScaleObservation(
+                    SkipFrame(env, skip)),
+                shape=120),
+        ),
         num_stack=5)
     env.seed(42)
     env.action_space.seed(42)
@@ -211,6 +214,6 @@ class Memory:  # stored as ( s, a, r, s_ ) in SumTree
     def update(self, idx, error):
         p = self._get_priority(error)
         self.tree.update(idx, p)
-        
+
     def __len__(self):
         return self.tree.n_entries
