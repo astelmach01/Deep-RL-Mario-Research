@@ -1,3 +1,4 @@
+from datetime import timedelta
 import os
 from os.path import exists
 from pyexpat import model
@@ -70,6 +71,7 @@ class DDQNAgent:
         self.current_step = 0
         self.maxlen_memory = 50000
         self.memory = Memory(self.maxlen_memory)
+        self.rollout = 5000
         self.batch_size = 128
         self.gamma = 0.95
         self.sync_period = 1e4
@@ -157,7 +159,7 @@ class DDQNAgent:
         if (self.current_step % self.sync_period) == 0:
             self.net.target.load_state_dict(self.net.online.state_dict())
 
-        if len(self.memory) < self.batch_size:
+        if len(self.memory) < self.batch_size or len(self.memory) < self.rollout:
             return
 
         self.gradient_descent()
@@ -218,12 +220,13 @@ def loop(env: gym.ObservationWrapper, agent: DDQNAgent, num_episodes=40000, chec
                     episode += 1
 
                     if episode % checkpoint_period == 0:
+                        print("Exploration rate: {}".format(agent.exploration_rate))
                         agent.save_checkpoint()
                         agent.log_period(
                             episode, agent.exploration_rate, agent.current_step, checkpoint_period)
                         
                     # print how many seconds it took
-                    print("Took {:.2f} seconds".format(time.time() - curr_time))
+                    print("Episode {} finished after {} seconds".format(episode, round(time.time() - curr_time), 2))
                     curr_time = time.time()
 
         except KeyboardInterrupt:
@@ -231,7 +234,7 @@ def loop(env: gym.ObservationWrapper, agent: DDQNAgent, num_episodes=40000, chec
             continue
 
 
-def train_with_demonstration(model='mobilenet'):
+def train_with_demonstration(model='efficientnet'):
     env = setup_environment(actions=SIMPLE_MOVEMENT, skip=4, second=False)
     # collect replay experiences
 
@@ -259,14 +262,14 @@ def train_with_demonstration(model='mobilenet'):
     sweat(agent=agent)
 
 
-def sweat(agent=None, model='mobilenet', render=False):
+def sweat(agent=None, model='efficientnet', render=False):
     env = setup_environment(actions=SIMPLE_MOVEMENT, skip=4, second=False)
 
     num_episodes = 40000
     checkpoint_period = 20
 
     save_directory = "checkpoints"
-    load_checkpoint = None
+    load_checkpoint = "checkpoint.pth"
 
     if agent is None:
         agent = DDQNAgent(input_channels=env.observation_space.shape[0], action_dim=env.action_space.n,
@@ -278,12 +281,12 @@ def sweat(agent=None, model='mobilenet', render=False):
     loop(env, agent, num_episodes, checkpoint_period, render=render)
 
 
-def play():
+def play(model='efficientnet'):
     env = setup_environment(actions=SIMPLE_MOVEMENT, skip=4, second=False)
     save_directory = "checkpoints"
     load_checkpoint = "checkpoint.pth"
     agent = DDQNAgent(input_channels=env.observation_space.shape[0], action_dim=env.action_space.n,
-                      save_directory=save_directory, model='mobilenet')
+                      save_directory=save_directory, model=model)
     if load_checkpoint is not None and exists(save_directory + "/" + load_checkpoint):
         agent.load_checkpoint(save_directory + "/" + load_checkpoint)
 
